@@ -1,0 +1,47 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: HRMS Backend
+  
+  datasource:
+    url: jdbc:mysql://localhost:3306/hrms_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: 070609
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+    defer-datasource-initialization: false
+
+logging:
+  level:
+    com.hrms: DEBUG
+    org.springframework.web: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+firebase:
+  service-account-file: classpath:serviceAccountKey.json
+  storage-bucket: hrmsauth-c03ac.firebasestorage.app
+  api-key: AIzaSyBl_VtmQQeuuI2U0z8o2BQgT50mcvwrcvU
+  auth-domain: hrmsauth-c03ac.firebaseapp.com
+  project-id: hrmsauth-c03ac
+  app-id: 1:343195302713:web:1883fcd4ddc821c12d46e8
