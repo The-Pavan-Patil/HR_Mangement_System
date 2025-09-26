@@ -1,8 +1,8 @@
-package com.hrms.controller;
+package com.hrms.server.controller;
 
-import com.hrms.dto.response.ApiResponse;
-import com.hrms.entity.User;
-import com.hrms.service.UserService;
+import com.hrms.server.dto.response.ApiResponse;
+import com.hrms.server.entity.User;
+import com.hrms.server.service.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +14,6 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/dashboard")
@@ -31,29 +30,39 @@ public class DashboardController {
         logger.info("Fetching admin dashboard statistics");
         
         try {
-            List<User> allUsers = userService.getAllActiveUsers();
+            List<User> allUsers = userService.getAllUsers();
+            List<User> activeUsers = userService.getAllActiveUsers();
             
             Map<String, Object> stats = new HashMap<>();
+            
+            // Basic counts
             stats.put("totalEmployees", allUsers.size());
-            stats.put("activeEmployees", allUsers.stream().mapToInt(u -> u.isActive() ? 1 : 0).sum());
-            stats.put("totalAdmins", allUsers.stream().mapToInt(u -> u.getRole() == User.Role.ADMIN ? 1 : 0).sum());
-            stats.put("totalManagers", allUsers.stream().mapToInt(u -> u.getRole() == User.Role.MANAGER ? 1 : 0).sum());
-            stats.put("totalHRs", allUsers.stream().mapToInt(u -> u.getRole() == User.Role.HR ? 1 : 0).sum());
-            stats.put("totalRecruiters", allUsers.stream().mapToInt(u -> u.getRole() == User.Role.RECRUITER ? 1 : 0).sum());
+            stats.put("activeEmployees", activeUsers.size());
             
-            // Calculate recent registrations (last 7 days)
-            LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
-            int recentRegistrations = (int) allUsers.stream()
-                .filter(u -> u.getCreatedAt().isAfter(sevenDaysAgo))
-                .count();
-            stats.put("recentRegistrations", recentRegistrations);
+            // Role-based counts
+            long adminCount = userService.getUserCountByRole(User.Role.ADMIN);
+            long managerCount = userService.getUserCountByRole(User.Role.MANAGER);
+            long hrCount = userService.getUserCountByRole(User.Role.HR);
+            long employeeCount = userService.getUserCountByRole(User.Role.EMPLOYEE);
+            long recruiterCount = userService.getUserCountByRole(User.Role.RECRUITER);
             
-            // Role distribution
-            Map<String, Integer> roleDistribution = new HashMap<>();
-            for (User.Role role : User.Role.values()) {
-                int count = (int) allUsers.stream().filter(u -> u.getRole() == role).count();
-                roleDistribution.put(role.toString(), count);
-            }
+            stats.put("totalAdmins", adminCount);
+            stats.put("totalManagers", managerCount);
+            stats.put("totalHRs", hrCount);
+            stats.put("totalEmployees_role", employeeCount);
+            stats.put("totalRecruiters", recruiterCount);
+            
+            // Recent registrations (last 7 days)
+            List<User> recentUsers = userService.getRecentUsers(7);
+            stats.put("recentRegistrations", recentUsers.size());
+            
+            // Role distribution for charts
+            Map<String, Long> roleDistribution = new HashMap<>();
+            roleDistribution.put("ADMIN", adminCount);
+            roleDistribution.put("MANAGER", managerCount);
+            roleDistribution.put("HR", hrCount);
+            roleDistribution.put("EMPLOYEE", employeeCount);
+            roleDistribution.put("RECRUITER", recruiterCount);
             stats.put("roleDistribution", roleDistribution);
             
             // System health metrics
@@ -63,20 +72,32 @@ public class DashboardController {
             systemHealth.put("backupStatus", "Scheduled");
             systemHealth.put("securityStatus", "Clean");
             systemHealth.put("uptime", "99.9%");
+            systemHealth.put("lastBackup", LocalDateTime.now().minusHours(6).toString());
             stats.put("systemHealth", systemHealth);
+            
+            // Performance metrics
+            Map<String, Object> performance = new HashMap<>();
+            performance.put("avgResponseTime", "245ms");
+            performance.put("totalRequests", 1547);
+            performance.put("errorRate", "0.2%");
+            performance.put("activeConnections", 23);
+            stats.put("performance", performance);
             
             ApiResponse<Map<String, Object>> response = ApiResponse.success(
                 "Admin statistics retrieved successfully", 
                 stats
             );
             
-            logger.info("Admin statistics retrieved successfully: {} total users", allUsers.size());
+            logger.info("Admin statistics retrieved - Total users: {}, Active: {}", 
+                       allUsers.size(), activeUsers.size());
             return new ResponseEntity<>(response, HttpStatus.OK);
             
         } catch (Exception e) {
-            logger.error("Error retrieving admin statistics: {}", e.getMessage());
+            logger.error("Error retrieving admin statistics: {}", e.getMessage(), e);
             
-            ApiResponse<Map<String, Object>> errorResponse = ApiResponse.error(e.getMessage());
+            ApiResponse<Map<String, Object>> errorResponse = ApiResponse.error(
+                "Failed to retrieve admin statistics: " + e.getMessage()
+            );
             return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -87,147 +108,81 @@ public class DashboardController {
         
         try {
             List<User> allUsers = userService.getAllActiveUsers();
-            // Filter out admin users for HR management
-            List<User> employees = allUsers.stream()
-                .filter(u -> u.getRole() != User.Role.ADMIN)
-                .collect(Collectors.toList());
+            List<User> employees = userService.getNonAdminUsers();
             
             Map<String, Object> stats = new HashMap<>();
-            stats.put("totalEmployees", employees.size());
-            stats.put("activeEmployees", employees.stream().mapToInt(u -> u.isActive() ? 1 : 0).sum());
             
-            // Calculate new hires this month
-            LocalDateTime firstDayOfMonth = LocalDateTime.now().withDayOfMonth(1);
-            int newHiresThisMonth = (int) employees.stream()
-                .filter(u -> u.getCreatedAt().isAfter(firstDayOfMonth))
+            // Employee counts
+            stats.put("totalEmployees", employees.size());
+            stats.put("activeEmployees", (int) employees.stream().filter(User::isActive).count());
+            
+            // New hires this month
+            LocalDateTime startOfMonth = LocalDateTime.now().withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0);
+            long newHiresThisMonth = employees.stream()
+                .filter(u -> u.getCreatedAt().isAfter(startOfMonth))
                 .count();
             stats.put("newHiresThisMonth", newHiresThisMonth);
             
             // Mock data for features not yet implemented
-            stats.put("pendingLeaveRequests", 7);
-            stats.put("upcomingMeetings", 3);
+            stats.put("pendingLeaveRequests", generateRandomStat(5, 15));
+            stats.put("upcomingPerformanceReviews", generateRandomStat(10, 25));
+            stats.put("pendingOnboardingTasks", generateRandomStat(3, 8));
             
-            // Personal metrics
-            Map<String, Object> personalMetrics = new HashMap<>();
-            personalMetrics.put("attendanceRate", 98.5);
-            personalMetrics.put("taskCompletionRate", 95.2);
-            personalMetrics.put("learningProgress", 78.3);
-            personalMetrics.put("goalAchievement", 85.0);
-            stats.put("personalMetrics", personalMetrics);
-            
-            ApiResponse<Map<String, Object>> response = ApiResponse.success(
-                "Employee statistics retrieved successfully", 
-                stats
-            );
-            
-            return new ResponseEntity<>(response, HttpStatus.OK);
-            
-        } catch (Exception e) {
-            logger.error("Error retrieving employee statistics: {}", e.getMessage());
-            
-            ApiResponse<Map<String, Object>> errorResponse = ApiResponse.error(e.getMessage());
-            return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-    
-    @GetMapping("/recruiter/stats")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getRecruiterStats() {
-        logger.info("Fetching recruiter dashboard statistics");
-        
-        try {
-            // Mock data for recruiter dashboard
-            Map<String, Object> stats = new HashMap<>();
-            stats.put("openPositions", 8);
-            stats.put("applications", 45);
-            stats.put("interviewsScheduled", 12);
-            stats.put("offersExtended", 3);
-            stats.put("candidatesInPipeline", 28);
-            stats.put("avgTimeToHire", 21); // days
-            
-            // Recruitment metrics
-            Map<String, Object> recruitmentMetrics = new HashMap<>();
-            recruitmentMetrics.put("applicationToInterviewRate", 26.7);
-            recruitmentMetrics.put("interviewToOfferRate", 25.0);
-            recruitmentMetrics.put("offerAcceptanceRate", 88.9);
-            recruitmentMetrics.put("sourceQuality", 4.2);
-            stats.put("recruitmentMetrics", recruitmentMetrics);
-            
-            // Pipeline status
-            Map<String, Integer> pipeline = new HashMap<>();
-            pipeline.put("screening", 15);
-            pipeline.put("firstInterview", 8);
-            pipeline.put("secondInterview", 3);
-            pipeline.put("finalReview", 2);
-            stats.put("candidatePipeline", pipeline);
-            
-            ApiResponse<Map<String, Object>> response = ApiResponse.success(
-                "Recruiter statistics retrieved successfully", 
-                stats
-            );
-            
-            return new ResponseEntity<>(response, HttpStatus.OK);
-            
-        } catch (Exception e) {
-            logger.error("Error retrieving recruiter statistics: {}", e.getMessage());
-            
-            ApiResponse<Map<String, Object>> errorResponse = ApiResponse.error(e.getMessage());
-            return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-}
-PerformanceReviews", 12);
-            
-            // Department distribution
-            Map<String, Integer> departmentDistribution = new HashMap<>();
-            departmentDistribution.put("Engineering", (int) employees.stream().filter(u -> u.getRole() == User.Role.EMPLOYEE).count());
-            departmentDistribution.put("Management", (int) employees.stream().filter(u -> u.getRole() == User.Role.MANAGER).count());
-            departmentDistribution.put("Recruitment", (int) employees.stream().filter(u -> u.getRole() == User.Role.RECRUITER).count());
-            departmentDistribution.put("Human Resources", (int) employees.stream().filter(u -> u.getRole() == User.Role.HR).count());
+            // Department/Role distribution for HR management
+            Map<String, Long> departmentDistribution = new HashMap<>();
+            departmentDistribution.put("Engineering", 
+                employees.stream().filter(u -> u.getRole() == User.Role.EMPLOYEE).count());
+            departmentDistribution.put("Management", 
+                employees.stream().filter(u -> u.getRole() == User.Role.MANAGER).count());
+            departmentDistribution.put("Recruitment", 
+                employees.stream().filter(u -> u.getRole() == User.Role.RECRUITER).count());
+            departmentDistribution.put("Human Resources", 
+                employees.stream().filter(u -> u.getRole() == User.Role.HR).count());
             stats.put("employeesByDepartment", departmentDistribution);
             
-            // HR Metrics
+            // HR Performance Metrics
             Map<String, Object> hrMetrics = new HashMap<>();
             hrMetrics.put("employeeRetention", 94.2);
             hrMetrics.put("averagePerformanceScore", 4.2);
             hrMetrics.put("trainingCompletion", 87.5);
+            hrMetrics.put("employeeSatisfaction", 4.1);
+            hrMetrics.put("timeToHire", 18); // days
+            hrMetrics.put("turnoverRate", 5.8); // percentage
             stats.put("hrMetrics", hrMetrics);
             
-            // Recent activities (mock data)
-            Map<String, Object> activity1 = new HashMap<>();
-            activity1.put("id", 1);
-            activity1.put("type", "registration");
-            activity1.put("message", "New employee registered");
-            activity1.put("timestamp", LocalDateTime.now().toString());
-            activity1.put("status", "completed");
+            // Recent HR Activities (mock data)
+            List<Map<String, Object>> recentActivities = List.of(
+                createActivity(1, "registration", "New employee registered: John Doe", "completed", 0),
+                createActivity(2, "leave", "Leave request submitted by Jane Smith", "pending", 2),
+                createActivity(3, "review", "Performance review completed for Mike Johnson", "completed", 4),
+                createActivity(4, "training", "Training program assigned to Development team", "in-progress", 6),
+                createActivity(5, "payroll", "Monthly payroll processed successfully", "completed", 24),
+                createActivity(6, "onboarding", "New hire orientation scheduled", "pending", 12)
+            );
+            stats.put("recentActivities", recentActivities);
             
-            Map<String, Object> activity2 = new HashMap<>();
-            activity2.put("id", 2);
-            activity2.put("type", "leave");
-            activity2.put("message", "Leave request submitted");
-            activity2.put("timestamp", LocalDateTime.now().minusHours(1).toString());
-            activity2.put("status", "pending");
-            
-            Map<String, Object> activity3 = new HashMap<>();
-            activity3.put("id", 3);
-            activity3.put("type", "review");
-            activity3.put("message", "Performance review completed");
-            activity3.put("timestamp", LocalDateTime.now().minusHours(2).toString());
-            activity3.put("status", "completed");
-            
-            stats.put("recentActivities", List.of(activity1, activity2, activity3));
+            // Upcoming tasks/reminders
+            List<Map<String, Object>> upcomingTasks = List.of(
+                Map.of("task", "Quarterly performance reviews", "dueDate", "2024-03-31", "priority", "high"),
+                Map.of("task", "Annual salary review", "dueDate", "2024-04-15", "priority", "medium"),
+                Map.of("task", "Team building event planning", "dueDate", "2024-03-20", "priority", "low")
+            );
+            stats.put("upcomingTasks", upcomingTasks);
             
             ApiResponse<Map<String, Object>> response = ApiResponse.success(
                 "HR statistics retrieved successfully", 
                 stats
             );
             
-            logger.info("HR statistics retrieved successfully: {} employees under management", employees.size());
+            logger.info("HR statistics retrieved - Employees under management: {}", employees.size());
             return new ResponseEntity<>(response, HttpStatus.OK);
             
         } catch (Exception e) {
-            logger.error("Error retrieving HR statistics: {}", e.getMessage());
+            logger.error("Error retrieving HR statistics: {}", e.getMessage(), e);
             
-            ApiResponse<Map<String, Object>> errorResponse = ApiResponse.error(e.getMessage());
+            ApiResponse<Map<String, Object>> errorResponse = ApiResponse.error(
+                "Failed to retrieve HR statistics: " + e.getMessage()
+            );
             return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -237,21 +192,32 @@ PerformanceReviews", 12);
         logger.info("Fetching manager dashboard statistics");
         
         try {
-            // Mock data for manager dashboard
             Map<String, Object> stats = new HashMap<>();
-            stats.put("teamMembers", 12);
-            stats.put("pendingApprovals", 5);
-            stats.put("teamPerformance", 87.5);
-            stats.put("completedTasks", 34);
-            stats.put("upcomingDeadlines", 8);
             
-            // Team performance breakdown
-            Map<String, Object> teamStats = new HashMap<>();
-            teamStats.put("onTimeDelivery", 92.3);
-            teamStats.put("qualityScore", 4.1);
-            teamStats.put("teamSatisfaction", 88.7);
-            teamStats.put("productivityIndex", 95.2);
-            stats.put("teamMetrics", teamStats);
+            // Team management stats
+            stats.put("teamMembers", generateRandomStat(8, 15));
+            stats.put("pendingApprovals", generateRandomStat(3, 8));
+            stats.put("teamPerformance", 87.5);
+            stats.put("completedTasks", generateRandomStat(25, 40));
+            stats.put("upcomingDeadlines", generateRandomStat(5, 12));
+            
+            // Team performance metrics
+            Map<String, Object> teamMetrics = new HashMap<>();
+            teamMetrics.put("onTimeDelivery", 92.3);
+            teamMetrics.put("qualityScore", 4.1);
+            teamMetrics.put("teamSatisfaction", 88.7);
+            teamMetrics.put("productivityIndex", 95.2);
+            teamMetrics.put("collaborationScore", 4.3);
+            stats.put("teamMetrics", teamMetrics);
+            
+            // Recent team activities
+            List<Map<String, Object>> teamActivities = List.of(
+                createActivity(1, "task", "Project milestone completed", "completed", 1),
+                createActivity(2, "meeting", "Weekly team standup scheduled", "upcoming", 0),
+                createActivity(3, "approval", "Leave request approved for team member", "completed", 3),
+                createActivity(4, "goal", "Quarterly goals updated", "in-progress", 5)
+            );
+            stats.put("teamActivities", teamActivities);
             
             ApiResponse<Map<String, Object>> response = ApiResponse.success(
                 "Manager statistics retrieved successfully", 
@@ -261,9 +227,11 @@ PerformanceReviews", 12);
             return new ResponseEntity<>(response, HttpStatus.OK);
             
         } catch (Exception e) {
-            logger.error("Error retrieving manager statistics: {}", e.getMessage());
+            logger.error("Error retrieving manager statistics: {}", e.getMessage(), e);
             
-            ApiResponse<Map<String, Object>> errorResponse = ApiResponse.error(e.getMessage());
+            ApiResponse<Map<String, Object>> errorResponse = ApiResponse.error(
+                "Failed to retrieve manager statistics: " + e.getMessage()
+            );
             return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -273,11 +241,124 @@ PerformanceReviews", 12);
         logger.info("Fetching employee dashboard statistics");
         
         try {
-            // Mock data for employee dashboard
             Map<String, Object> stats = new HashMap<>();
-            stats.put("leaveBalance", 18);
-            stats.put("hoursThisMonth", 156);
-            stats.put("pendingTasks", 7);
+            
+            // Personal stats
+            stats.put("leaveBalance", generateRandomStat(15, 25));
+            stats.put("hoursThisMonth", generateRandomStat(140, 180));
+            stats.put("pendingTasks", generateRandomStat(5, 12));
             stats.put("performanceScore", 92.0);
-            stats.put("completedTrainings", 5);
-            stats.put("upcoming
+            stats.put("completedTrainings", generateRandomStat(3, 8));
+            stats.put("upcomingMeetings", generateRandomStat(2, 6));
+            
+            // Personal performance metrics
+            Map<String, Object> personalMetrics = new HashMap<>();
+            personalMetrics.put("attendanceRate", 98.5);
+            personalMetrics.put("taskCompletionRate", 95.2);
+            personalMetrics.put("learningProgress", 78.3);
+            personalMetrics.put("goalAchievement", 85.0);
+            personalMetrics.put("peerRating", 4.2);
+            stats.put("personalMetrics", personalMetrics);
+            
+            // Recent personal activities
+            List<Map<String, Object>> personalActivities = List.of(
+                createActivity(1, "task", "Project deliverable submitted", "completed", 1),
+                createActivity(2, "training", "Completed cybersecurity training", "completed", 2),
+                createActivity(3, "meeting", "One-on-one with manager", "completed", 3),
+                createActivity(4, "goal", "Updated personal development goals", "completed", 5)
+            );
+            stats.put("personalActivities", personalActivities);
+            
+            ApiResponse<Map<String, Object>> response = ApiResponse.success(
+                "Employee statistics retrieved successfully", 
+                stats
+            );
+            
+            return new ResponseEntity<>(response, HttpStatus.OK);
+            
+        } catch (Exception e) {
+            logger.error("Error retrieving employee statistics: {}", e.getMessage(), e);
+            
+            ApiResponse<Map<String, Object>> errorResponse = ApiResponse.error(
+                "Failed to retrieve employee statistics: " + e.getMessage()
+            );
+            return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    
+    @GetMapping("/recruiter/stats")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getRecruiterStats() {
+        logger.info("Fetching recruiter dashboard statistics");
+        
+        try {
+            Map<String, Object> stats = new HashMap<>();
+            
+            // Recruitment pipeline stats
+            stats.put("openPositions", generateRandomStat(6, 12));
+            stats.put("applications", generateRandomStat(35, 60));
+            stats.put("interviewsScheduled", generateRandomStat(8, 18));
+            stats.put("offersExtended", generateRandomStat(2, 6));
+            stats.put("candidatesInPipeline", generateRandomStat(20, 35));
+            stats.put("avgTimeToHire", generateRandomStat(18, 28)); // days
+            
+            // Recruitment performance metrics
+            Map<String, Object> recruitmentMetrics = new HashMap<>();
+            recruitmentMetrics.put("applicationToInterviewRate", 26.7);
+            recruitmentMetrics.put("interviewToOfferRate", 25.0);
+            recruitmentMetrics.put("offerAcceptanceRate", 88.9);
+            recruitmentMetrics.put("sourceQuality", 4.2);
+            recruitmentMetrics.put("candidateSatisfaction", 4.1);
+            recruitmentMetrics.put("hiringManagerSatisfaction", 4.3);
+            stats.put("recruitmentMetrics", recruitmentMetrics);
+            
+            // Candidate pipeline breakdown
+            Map<String, Integer> pipeline = new HashMap<>();
+            pipeline.put("screening", generateRandomStat(10, 20));
+            pipeline.put("firstInterview", generateRandomStat(6, 12));
+            pipeline.put("secondInterview", generateRandomStat(3, 8));
+            pipeline.put("finalReview", generateRandomStat(1, 4));
+            pipeline.put("offerStage", generateRandomStat(1, 3));
+            stats.put("candidatePipeline", pipeline);
+            
+            // Recent recruitment activities
+            List<Map<String, Object>> recruitmentActivities = List.of(
+                createActivity(1, "application", "New application received for Senior Developer", "new", 0),
+                createActivity(2, "interview", "Technical interview completed", "completed", 2),
+                createActivity(3, "offer", "Job offer extended to candidate", "pending", 1),
+                createActivity(4, "posting", "New job posting published", "active", 4),
+                createActivity(5, "screening", "Phone screening scheduled", "upcoming", 1)
+            );
+            stats.put("recruitmentActivities", recruitmentActivities);
+            
+            ApiResponse<Map<String, Object>> response = ApiResponse.success(
+                "Recruiter statistics retrieved successfully", 
+                stats
+            );
+            
+            return new ResponseEntity<>(response, HttpStatus.OK);
+            
+        } catch (Exception e) {
+            logger.error("Error retrieving recruiter statistics: {}", e.getMessage(), e);
+            
+            ApiResponse<Map<String, Object>> errorResponse = ApiResponse.error(
+                "Failed to retrieve recruiter statistics: " + e.getMessage()
+            );
+            return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    
+    // Helper methods
+    private int generateRandomStat(int min, int max) {
+        return (int) (Math.random() * (max - min + 1)) + min;
+    }
+    
+    private Map<String, Object> createActivity(int id, String type, String message, String status, int hoursAgo) {
+        Map<String, Object> activity = new HashMap<>();
+        activity.put("id", id);
+        activity.put("type", type);
+        activity.put("message", message);
+        activity.put("status", status);
+        activity.put("timestamp", LocalDateTime.now().minusHours(hoursAgo).toString());
+        return activity;
+    }
+}
