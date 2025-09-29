@@ -18,6 +18,9 @@ public interface PayrollRepository extends JpaRepository<PayrollRecord, Long> {
     Optional<PayrollRecord> findByEmployeeAndPayPeriod(User employee, String payPeriod);
     
     List<PayrollRecord> findByStatus(PayrollRecord.PayrollStatus status);
+    List<PayrollRecord> findByEmployeeOrderByPayPeriodDesc(User employee);
+
+List<PayrollRecord> findByEmployee(User employee);
     
     @Query("SELECT pr FROM PayrollRecord pr WHERE pr.payPeriod = :period AND pr.status = :status")
     List<PayrollRecord> findByPayPeriodAndStatus(@Param("period") String period, 

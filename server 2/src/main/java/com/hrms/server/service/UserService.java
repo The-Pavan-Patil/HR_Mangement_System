@@ -532,6 +532,34 @@ public class UserService {
         logger.info("User report generated successfully");
         return report;
     }
+
+    public User updatePersonalDetails(String firebaseUid, String phone, String address,
+            String emergencyName, String emergencyPhone, String emergencyRelationship) {
+        logger.info("Updating personal details for user: {}", firebaseUid);
+
+        User user = findByFirebaseUid(firebaseUid);
+
+        if (phone != null) {
+            user.setPhone(phone);
+        }
+        if (address != null) {
+            user.setAddress(address);
+        }
+        if (emergencyName != null) {
+            user.setEmergencyContactName(emergencyName);
+        }
+        if (emergencyPhone != null) {
+            user.setEmergencyContactPhone(emergencyPhone);
+        }
+        if (emergencyRelationship != null) {
+            user.setEmergencyContactRelationship(emergencyRelationship);
+        }
+
+        User updatedUser = userRepository.save(user);
+        logger.info("Personal details updated successfully for user: {}", firebaseUid);
+
+        return updatedUser;
+    }
     
     // Private helper methods
     

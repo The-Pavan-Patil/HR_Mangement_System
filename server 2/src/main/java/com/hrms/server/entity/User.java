@@ -41,6 +41,21 @@ public class User {
     @Column(name = "is_active")
     private boolean isActive = true;
     
+    @Column(name = "phone")
+    private String phone;
+    
+    @Column(name = "address")
+    private String address;
+    
+    @Column(name = "emergency_contact_name")
+    private String emergencyContactName;
+    
+    @Column(name = "emergency_contact_phone")
+    private String emergencyContactPhone;
+    
+    @Column(name = "emergency_contact_relationship")
+    private String emergencyContactRelationship;
+    
     @CreationTimestamp
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -117,6 +132,46 @@ public class User {
         isActive = active;
     }
     
+    public String getPhone() {
+        return phone;
+    }
+    
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+    
+    public String getAddress() {
+        return address;
+    }
+    
+    public void setAddress(String address) {
+        this.address = address;
+    }
+    
+    public String getEmergencyContactName() {
+        return emergencyContactName;
+    }
+    
+    public void setEmergencyContactName(String emergencyContactName) {
+        this.emergencyContactName = emergencyContactName;
+    }
+    
+    public String getEmergencyContactPhone() {
+        return emergencyContactPhone;
+    }
+    
+    public void setEmergencyContactPhone(String emergencyContactPhone) {
+        this.emergencyContactPhone = emergencyContactPhone;
+    }
+    
+    public String getEmergencyContactRelationship() {
+        return emergencyContactRelationship;
+    }
+    
+    public void setEmergencyContactRelationship(String emergencyContactRelationship) {
+        this.emergencyContactRelationship = emergencyContactRelationship;
+    }
+    
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -147,6 +202,11 @@ public class User {
                 ", lastName='" + lastName + '\'' +
                 ", role=" + role +
                 ", isActive=" + isActive +
+                ", phone='" + phone + '\'' +
+                ", address='" + address + '\'' +
+                ", emergencyContactName='" + emergencyContactName + '\'' +
+                ", emergencyContactPhone='" + emergencyContactPhone + '\'' +
+                ", emergencyContactRelationship='" + emergencyContactRelationship + '\'' +
                 '}';
     }
 }

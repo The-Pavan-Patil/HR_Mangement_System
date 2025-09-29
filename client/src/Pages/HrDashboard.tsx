@@ -56,6 +56,32 @@ interface HRStats {
   }>;
 }
 
+interface LeaveRequest {
+  id: number;
+  employeeId: number;
+  employeeName: string;
+  employeeEmail: string;
+  leaveType: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  appliedDate: string;
+  reviewedBy?: string;
+  reviewedDate?: string;
+  reviewComments?: string;
+  urgency: "low" | "medium" | "high";
+}
+
+interface LeaveStats {
+  totalRequests: number;
+  pendingRequests: number;
+  approvedRequests: number;
+  rejectedRequests: number;
+  thisMonthRequests: number;
+}
+
 interface HRDashboardProps {
   user: UserProfile;
   onLogout: () => void;
@@ -75,7 +101,7 @@ const HRDashboard: React.FC<HRDashboardProps> = ({ user, onLogout }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
   const [activeTab, setActiveTab] = useState<
-    "overview" | "employees" | "activities" | "payroll"
+    "overview" | "employees" | "activities" | "payroll" | "leave"
   >("overview");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -108,10 +134,33 @@ const HRDashboard: React.FC<HRDashboardProps> = ({ user, onLogout }) => {
     null
   );
   const [payrollLoading, setPayrollLoading] = useState(false);
+  const [showLeaveTab, setShowLeaveTab] = useState(false);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [leaveStats, setLeaveStats] = useState<LeaveStats>({
+    totalRequests: 0,
+    pendingRequests: 0,
+    approvedRequests: 0,
+    rejectedRequests: 0,
+    thisMonthRequests: 0,
+  });
+  const [showLeaveReviewModal, setShowLeaveReviewModal] = useState(false);
+  const [selectedLeaveRequest, setSelectedLeaveRequest] =
+    useState<LeaveRequest | null>(null);
+  const [reviewComments, setReviewComments] = useState("");
+  const [leaveFilter, setLeaveFilter] = useState<
+    "all" | "pending" | "approved" | "rejected"
+  >("pending");
+  const [leaveLoading, setLeaveLoading] = useState(false);
 
   useEffect(() => {
     fetchHRDashboardData();
   }, []);
+
+  useEffect(() => {
+    if (showLeaveTab) {
+      fetchLeaveRequests();
+    }
+  }, [showLeaveTab]);
 
   useEffect(() => {
     if (showPayrollTab) {
@@ -214,6 +263,185 @@ const HRDashboard: React.FC<HRDashboardProps> = ({ user, onLogout }) => {
       setLoading(false);
     }
   };
+  // Add these functions after existing handler functions
+
+  const fetchLeaveRequests = async () => {
+    setLeaveLoading(true);
+    try {
+      const response = await fetch("http://localhost:8080/api/leave/requests", {
+        method: "GET",
+        headers: {
+          Authorization: "Basic " + btoa("user:password123"),
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          setLeaveRequests(result.data.requests);
+          setLeaveStats(result.data.stats);
+          console.log("✅ Leave requests loaded successfully");
+        }
+      } else {
+        console.error("❌ Failed to fetch leave requests");
+        setError("Failed to load leave requests");
+      }
+    } catch (error) {
+      console.error("❌ Error fetching leave requests:", error);
+      setError("Error connecting to leave management service");
+    } finally {
+      setLeaveLoading(false);
+    }
+  };
+
+  const handleReviewLeave = (leaveRequest: LeaveRequest) => {
+    setSelectedLeaveRequest(leaveRequest);
+    setReviewComments("");
+    setShowLeaveReviewModal(true);
+  };
+
+  const approveLeaveRequest = async () => {
+    if (!selectedLeaveRequest) return;
+
+    setActionLoading(`approve-${selectedLeaveRequest.id}`);
+    try {
+      const response = await fetch(
+        `http://localhost:8080/api/leave/requests/${selectedLeaveRequest.id}/approve`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: "Basic " + btoa("user:password123"),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            reviewComments: reviewComments || "Leave request approved",
+          }),
+        }
+      );
+
+      if (response.ok) {
+        console.log("✅ Leave request approved successfully");
+        setShowLeaveReviewModal(false);
+        setSelectedLeaveRequest(null);
+        await fetchLeaveRequests(); // Refresh data
+      } else {
+        const errorResult = await response.json();
+        setError(`Failed to approve leave request: ${errorResult.message}`);
+      }
+    } catch (error) {
+      console.error("❌ Error approving leave request:", error);
+      setError("Error approving leave request");
+    } finally {
+      setActionLoading("");
+    }
+  };
+
+  const rejectLeaveRequest = async () => {
+    if (!selectedLeaveRequest) return;
+
+    if (!reviewComments.trim()) {
+      setError("Please provide a reason for rejection");
+      return;
+    }
+
+    setActionLoading(`reject-${selectedLeaveRequest.id}`);
+    try {
+      const response = await fetch(
+        `http://localhost:8080/api/leave/requests/${selectedLeaveRequest.id}/reject`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: "Basic " + btoa("user:password123"),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            reviewComments: reviewComments,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        console.log("✅ Leave request rejected successfully");
+        setShowLeaveReviewModal(false);
+        setSelectedLeaveRequest(null);
+        await fetchLeaveRequests(); // Refresh data
+      } else {
+        const errorResult = await response.json();
+        setError(`Failed to reject leave request: ${errorResult.message}`);
+      }
+    } catch (error) {
+      console.error("❌ Error rejecting leave request:", error);
+      setError("Error rejecting leave request");
+    } finally {
+      setActionLoading("");
+    }
+  };
+
+  const quickApprove = async (leaveId: number) => {
+    setActionLoading(`quick-approve-${leaveId}`);
+    try {
+      const response = await fetch(
+        `http://localhost:8080/api/leave/requests/${leaveId}/approve`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: "Basic " + btoa("user:password123"),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            reviewComments: "Quick approval",
+          }),
+        }
+      );
+
+      if (response.ok) {
+        console.log("✅ Leave request quick approved");
+        await fetchLeaveRequests();
+      } else {
+        setError("Failed to approve leave request");
+      }
+    } catch (error) {
+      console.error("❌ Error in quick approve:", error);
+      setError("Error approving leave request");
+    } finally {
+      setActionLoading("");
+    }
+  };
+
+  const calculateLeaveDuration = (startDate: string, endDate: string) => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+  };
+
+  const getUrgencyColor = (urgency: string) => {
+    switch (urgency) {
+      case "high":
+        return "bg-red-100 text-red-800";
+      case "medium":
+        return "bg-yellow-100 text-yellow-800";
+      default:
+        return "bg-green-100 text-green-800";
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "approved":
+        return "bg-green-100 text-green-800";
+      case "rejected":
+        return "bg-red-100 text-red-800";
+      default:
+        return "bg-yellow-100 text-yellow-800";
+    }
+  };
+
+  const filteredLeaveRequests =
+    leaveFilter === "all"
+      ? leaveRequests
+      : leaveRequests.filter((req) => req.status === leaveFilter);
 
   //new code
   const handleAddEmployee = () => {
@@ -606,7 +834,6 @@ const HRDashboard: React.FC<HRDashboardProps> = ({ user, onLogout }) => {
     }
   };
 
-
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto">
@@ -680,6 +907,19 @@ const HRDashboard: React.FC<HRDashboardProps> = ({ user, onLogout }) => {
                 }`}
               >
                 Payroll Management
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab("leave");
+                  setShowLeaveTab(true);
+                }}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === "leave"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+              >
+                Leave Management
               </button>
             </nav>
           </div>
@@ -1099,214 +1339,517 @@ const HRDashboard: React.FC<HRDashboardProps> = ({ user, onLogout }) => {
           </div>
         )}
         {/* Payroll Management Tab */}
-{activeTab === 'payroll' && (
-  <div className="space-y-6">
-    {/* Payroll Summary Cards */}
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      <div className="bg-blue-500 text-white p-6 rounded-lg">
-        <h3 className="text-lg font-semibold">Total Employees</h3>
-        <p className="text-3xl font-bold mt-2">{payrollSummary.totalEmployees}</p>
-        <p className="text-sm mt-2 opacity-90">In payroll system</p>
-      </div>
-      <div className="bg-green-500 text-white p-6 rounded-lg">
-        <h3 className="text-lg font-semibold">Total Gross</h3>
-        <p className="text-3xl font-bold mt-2">${payrollSummary.totalGross.toLocaleString()}</p>
-        <p className="text-sm mt-2 opacity-90">This period</p>
-      </div>
-      <div className="bg-orange-500 text-white p-6 rounded-lg">
-        <h3 className="text-lg font-semibold">Total Deductions</h3>
-        <p className="text-3xl font-bold mt-2">${payrollSummary.totalDeductions.toLocaleString()}</p>
-        <p className="text-sm mt-2 opacity-90">Taxes & deductions</p>
-      </div>
-      <div className="bg-purple-500 text-white p-6 rounded-lg">
-        <h3 className="text-lg font-semibold">Net Payroll</h3>
-        <p className="text-3xl font-bold mt-2">${payrollSummary.totalNet.toLocaleString()}</p>
-        <p className="text-sm mt-2 opacity-90">To be paid out</p>
-      </div>
-    </div>
-
-    {/* Payroll Controls */}
-    <div className="bg-white rounded-lg shadow p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-semibold">Payroll Management</h2>
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <label className="text-sm font-medium text-gray-700">Period:</label>
-            <input
-              type="month"
-              value={selectedPeriod}
-              onChange={(e) => setSelectedPeriod(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <button
-            onClick={generatePayrollForPeriod}
-            disabled={actionLoading === 'generate-payroll'}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 transition duration-200 flex items-center"
-          >
-            {actionLoading === 'generate-payroll' ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                Generating...
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-                </svg>
-                Generate Payroll
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Payroll Status Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-yellow-50 p-4 rounded-lg border-l-4 border-yellow-400">
-          <div className="flex">
-            <div className="ml-3">
-              <p className="text-sm text-yellow-800">Draft Payrolls</p>
-              <p className="text-2xl font-bold text-yellow-900">
-                {payrollRecords.filter(p => p.status === 'draft').length}
-              </p>
+        {activeTab === "payroll" && (
+          <div className="space-y-6">
+            {/* Payroll Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-blue-500 text-white p-6 rounded-lg">
+                <h3 className="text-lg font-semibold">Total Employees</h3>
+                <p className="text-3xl font-bold mt-2">
+                  {payrollSummary.totalEmployees}
+                </p>
+                <p className="text-sm mt-2 opacity-90">In payroll system</p>
+              </div>
+              <div className="bg-green-500 text-white p-6 rounded-lg">
+                <h3 className="text-lg font-semibold">Total Gross</h3>
+                <p className="text-3xl font-bold mt-2">
+                  ${payrollSummary.totalGross.toLocaleString()}
+                </p>
+                <p className="text-sm mt-2 opacity-90">This period</p>
+              </div>
+              <div className="bg-orange-500 text-white p-6 rounded-lg">
+                <h3 className="text-lg font-semibold">Total Deductions</h3>
+                <p className="text-3xl font-bold mt-2">
+                  ${payrollSummary.totalDeductions.toLocaleString()}
+                </p>
+                <p className="text-sm mt-2 opacity-90">Taxes & deductions</p>
+              </div>
+              <div className="bg-purple-500 text-white p-6 rounded-lg">
+                <h3 className="text-lg font-semibold">Net Payroll</h3>
+                <p className="text-3xl font-bold mt-2">
+                  ${payrollSummary.totalNet.toLocaleString()}
+                </p>
+                <p className="text-sm mt-2 opacity-90">To be paid out</p>
+              </div>
             </div>
-          </div>
-        </div>
-        <div className="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-400">
-          <div className="flex">
-            <div className="ml-3">
-              <p className="text-sm text-blue-800">Processed</p>
-              <p className="text-2xl font-bold text-blue-900">
-                {payrollRecords.filter(p => p.status === 'processed').length}
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-green-50 p-4 rounded-lg border-l-4 border-green-400">
-          <div className="flex">
-            <div className="ml-3">
-              <p className="text-sm text-green-800">Paid</p>
-              <p className="text-2xl font-bold text-green-900">
-                {payrollRecords.filter(p => p.status === 'paid').length}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Payroll Records Table */}
-      {payrollLoading ? (
-        <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-2">Loading payroll data...</span>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full table-auto">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Employee
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Base Salary
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Overtime
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Deductions
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Net Salary
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {payrollRecords.map((payroll) => (
-                <tr key={payroll.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{payroll.employeeName}</div>
-                    <div className="text-sm text-gray-500">{payroll.email}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${payroll.baseSalary.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${payroll.overtime.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${payroll.deductions.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    ${payroll.netSalary.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      payroll.status === 'paid' ? 'bg-green-100 text-green-800' :
-                      payroll.status === 'processed' ? 'bg-blue-100 text-blue-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {payroll.status.charAt(0).toUpperCase() + payroll.status.slice(1)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => viewPayslip(payroll)}
-                        className="text-indigo-600 hover:text-indigo-900 px-2 py-1 rounded hover:bg-indigo-50 transition duration-200"
-                      >
-                        View
-                      </button>
-                      <button
-                        onClick={() => downloadPayslip(payroll.id, payroll.employeeName)}
-                        disabled={actionLoading === `download-${payroll.id}`}
-                        className="text-green-600 hover:text-green-900 px-2 py-1 rounded hover:bg-green-50 transition duration-200 disabled:opacity-50"
-                      >
-                        {actionLoading === `download-${payroll.id}` ? 'Downloading...' : 'Download'}
-                      </button>
-                      {payroll.status === 'draft' && (
-                        <button
-                          onClick={() => processPayroll(payroll.id)}
-                          disabled={actionLoading === `process-${payroll.id}`}
-                          className="text-blue-600 hover:text-blue-900 px-2 py-1 rounded hover:bg-blue-50 transition duration-200 disabled:opacity-50"
+            {/* Payroll Controls */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold">Payroll Management</h2>
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                    <label className="text-sm font-medium text-gray-700">
+                      Period:
+                    </label>
+                    <input
+                      type="month"
+                      value={selectedPeriod}
+                      onChange={(e) => setSelectedPeriod(e.target.value)}
+                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <button
+                    onClick={generatePayrollForPeriod}
+                    disabled={actionLoading === "generate-payroll"}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 transition duration-200 flex items-center"
+                  >
+                    {actionLoading === "generate-payroll" ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <svg
+                          className="w-4 h-4 mr-2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
                         >
-                          {actionLoading === `process-${payroll.id}` ? 'Processing...' : 'Process'}
-                        </button>
-                      )}
-                      {payroll.status === 'processed' && (
-                        <button
-                          onClick={() => markAsPaid(payroll.id)}
-                          disabled={actionLoading === `paid-${payroll.id}`}
-                          className="text-purple-600 hover:text-purple-900 px-2 py-1 rounded hover:bg-purple-50 transition duration-200 disabled:opacity-50"
-                        >
-                          {actionLoading === `paid-${payroll.id}` ? 'Updating...' : 'Mark Paid'}
-                        </button>
-                      )}
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M12 4v16m8-8H4"
+                          />
+                        </svg>
+                        Generate Payroll
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Payroll Status Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="bg-yellow-50 p-4 rounded-lg border-l-4 border-yellow-400">
+                  <div className="flex">
+                    <div className="ml-3">
+                      <p className="text-sm text-yellow-800">Draft Payrolls</p>
+                      <p className="text-2xl font-bold text-yellow-900">
+                        {
+                          payrollRecords.filter((p) => p.status === "draft")
+                            .length
+                        }
+                      </p>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          
-          {payrollRecords.length === 0 && (
-            <div className="text-center py-8 text-gray-500">
-              No payroll records found for {selectedPeriod}. Generate payroll to get started.
+                  </div>
+                </div>
+                <div className="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-400">
+                  <div className="flex">
+                    <div className="ml-3">
+                      <p className="text-sm text-blue-800">Processed</p>
+                      <p className="text-2xl font-bold text-blue-900">
+                        {
+                          payrollRecords.filter((p) => p.status === "processed")
+                            .length
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-green-50 p-4 rounded-lg border-l-4 border-green-400">
+                  <div className="flex">
+                    <div className="ml-3">
+                      <p className="text-sm text-green-800">Paid</p>
+                      <p className="text-2xl font-bold text-green-900">
+                        {
+                          payrollRecords.filter((p) => p.status === "paid")
+                            .length
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payroll Records Table */}
+              {payrollLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <span className="ml-2">Loading payroll data...</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full table-auto">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Employee
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Base Salary
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Overtime
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Deductions
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Net Salary
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Status
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {payrollRecords.map((payroll) => (
+                        <tr key={payroll.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {payroll.employeeName}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {payroll.email}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            ${payroll.baseSalary.toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            ${payroll.overtime.toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            ${payroll.deductions.toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            ${payroll.netSalary.toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span
+                              className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                payroll.status === "paid"
+                                  ? "bg-green-100 text-green-800"
+                                  : payroll.status === "processed"
+                                  ? "bg-blue-100 text-blue-800"
+                                  : "bg-yellow-100 text-yellow-800"
+                              }`}
+                            >
+                              {payroll.status.charAt(0).toUpperCase() +
+                                payroll.status.slice(1)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => viewPayslip(payroll)}
+                                className="text-indigo-600 hover:text-indigo-900 px-2 py-1 rounded hover:bg-indigo-50 transition duration-200"
+                              >
+                                View
+                              </button>
+                              <button
+                                onClick={() =>
+                                  downloadPayslip(
+                                    payroll.id,
+                                    payroll.employeeName
+                                  )
+                                }
+                                disabled={
+                                  actionLoading === `download-${payroll.id}`
+                                }
+                                className="text-green-600 hover:text-green-900 px-2 py-1 rounded hover:bg-green-50 transition duration-200 disabled:opacity-50"
+                              >
+                                {actionLoading === `download-${payroll.id}`
+                                  ? "Downloading..."
+                                  : "Download"}
+                              </button>
+                              {payroll.status === "draft" && (
+                                <button
+                                  onClick={() => processPayroll(payroll.id)}
+                                  disabled={
+                                    actionLoading === `process-${payroll.id}`
+                                  }
+                                  className="text-blue-600 hover:text-blue-900 px-2 py-1 rounded hover:bg-blue-50 transition duration-200 disabled:opacity-50"
+                                >
+                                  {actionLoading === `process-${payroll.id}`
+                                    ? "Processing..."
+                                    : "Process"}
+                                </button>
+                              )}
+                              {payroll.status === "processed" && (
+                                <button
+                                  onClick={() => markAsPaid(payroll.id)}
+                                  disabled={
+                                    actionLoading === `paid-${payroll.id}`
+                                  }
+                                  className="text-purple-600 hover:text-purple-900 px-2 py-1 rounded hover:bg-purple-50 transition duration-200 disabled:opacity-50"
+                                >
+                                  {actionLoading === `paid-${payroll.id}`
+                                    ? "Updating..."
+                                    : "Mark Paid"}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {payrollRecords.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      No payroll records found for {selectedPeriod}. Generate
+                      payroll to get started.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      )}
-    </div>
-  </div>
-)}
+          </div>
+        )}
+        {/* Leave Management Tab */}
+        {activeTab === "leave" && (
+          <div className="space-y-6">
+            {/* Leave Statistics Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-blue-500 text-white p-6 rounded-lg">
+                <h3 className="text-lg font-semibold">Total Requests</h3>
+                <p className="text-3xl font-bold mt-2">
+                  {leaveStats.totalRequests}
+                </p>
+                <p className="text-sm mt-2 opacity-90">All time</p>
+              </div>
+              <div className="bg-yellow-500 text-white p-6 rounded-lg">
+                <h3 className="text-lg font-semibold">Pending Review</h3>
+                <p className="text-3xl font-bold mt-2">
+                  {leaveStats.pendingRequests}
+                </p>
+                <p className="text-sm mt-2 opacity-90">Awaiting action</p>
+              </div>
+              <div className="bg-green-500 text-white p-6 rounded-lg">
+                <h3 className="text-lg font-semibold">Approved</h3>
+                <p className="text-3xl font-bold mt-2">
+                  {leaveStats.approvedRequests}
+                </p>
+                <p className="text-sm mt-2 opacity-90">This month</p>
+              </div>
+              <div className="bg-red-500 text-white p-6 rounded-lg">
+                <h3 className="text-lg font-semibold">Rejected</h3>
+                <p className="text-3xl font-bold mt-2">
+                  {leaveStats.rejectedRequests}
+                </p>
+                <p className="text-sm mt-2 opacity-90">This month</p>
+              </div>
+            </div>
+
+            {/* Leave Management Controls */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold">
+                  Leave Request Management
+                </h2>
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                    <label className="text-sm font-medium text-gray-700">
+                      Filter:
+                    </label>
+                    <select
+                      value={leaveFilter}
+                      onChange={(e) => setLeaveFilter(e.target.value as any)}
+                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="all">All Requests</option>
+                      <option value="pending">Pending</option>
+                      <option value="approved">Approved</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    Showing {filteredLeaveRequests.length} of{" "}
+                    {leaveRequests.length} requests
+                  </div>
+                </div>
+              </div>
+
+              {/* Priority Requests Alert */}
+              {leaveRequests.filter(
+                (r) => r.status === "pending" && r.urgency === "high"
+              ).length > 0 && (
+                <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <svg
+                        className="h-5 w-5 text-red-400"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm text-red-700">
+                        <strong>Urgent:</strong>{" "}
+                        {
+                          leaveRequests.filter(
+                            (r) =>
+                              r.status === "pending" && r.urgency === "high"
+                          ).length
+                        }{" "}
+                        high-priority leave requests need immediate attention.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Leave Requests Table */}
+              {leaveLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <span className="ml-2">Loading leave requests...</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full table-auto">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Employee
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Leave Type
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Duration
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Dates
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Urgency
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Status
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Applied
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {filteredLeaveRequests.map((request) => (
+                        <tr key={request.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <div className="h-8 w-8 bg-gray-300 rounded-full flex items-center justify-center mr-3">
+                                <span className="text-xs font-medium text-gray-700">
+                                  {request.employeeName
+                                    .split(" ")
+                                    .map((n) => n.charAt(0))
+                                    .join("")}
+                                </span>
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">
+                                  {request.employeeName}
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {request.employeeEmail}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                              {request.leaveType}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {request.totalDays}{" "}
+                            {request.totalDays === 1 ? "day" : "days"}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            <div>{formatDate(request.startDate)}</div>
+                            {request.startDate !== request.endDate && (
+                              <div className="text-gray-500">
+                                to {formatDate(request.endDate)}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span
+                              className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getUrgencyColor(
+                                request.urgency
+                              )}`}
+                            >
+                              {request.urgency.charAt(0).toUpperCase() +
+                                request.urgency.slice(1)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span
+                              className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(
+                                request.status
+                              )}`}
+                            >
+                              {request.status.charAt(0).toUpperCase() +
+                                request.status.slice(1)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {formatDate(request.appliedDate)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => handleReviewLeave(request)}
+                                className="text-indigo-600 hover:text-indigo-900 px-2 py-1 rounded hover:bg-indigo-50 transition duration-200"
+                              >
+                                Review
+                              </button>
+                              {request.status === "pending" && (
+                                <>
+                                  <button
+                                    onClick={() => quickApprove(request.id)}
+                                    disabled={
+                                      actionLoading ===
+                                      `quick-approve-${request.id}`
+                                    }
+                                    className="text-green-600 hover:text-green-900 px-2 py-1 rounded hover:bg-green-50 transition duration-200 disabled:opacity-50"
+                                  >
+                                    {actionLoading ===
+                                    `quick-approve-${request.id}`
+                                      ? "Approving..."
+                                      : "Quick Approve"}
+                                  </button>
+                                </>
+                              )}
+                              {request.reviewedBy && (
+                                <span className="text-xs text-gray-400">
+                                  by {request.reviewedBy}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {filteredLeaveRequests.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      No {leaveFilter !== "all" ? leaveFilter : ""} leave
+                      requests found.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
       {/* Add Employee Modal */}
       {showAddModal && (
@@ -1824,6 +2367,217 @@ const HRDashboard: React.FC<HRDashboardProps> = ({ user, onLogout }) => {
                 >
                   Close
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Leave Review Modal - Add this modal at the end before closing div */}
+      {showLeaveReviewModal && selectedLeaveRequest && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-10 mx-auto p-5 border w-4/5 max-w-3xl shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              {/* Header */}
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-2xl font-bold text-gray-900">
+                  Review Leave Request
+                </h3>
+                <button
+                  onClick={() => setShowLeaveReviewModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg
+                    className="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Employee and Leave Details */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                {/* Employee Info */}
+                <div className="bg-gray-50 p-6 rounded-lg">
+                  <h4 className="font-semibold text-gray-900 mb-4">
+                    Employee Information
+                  </h4>
+                  <div className="space-y-2">
+                    <p>
+                      <span className="font-medium">Name:</span>{" "}
+                      {selectedLeaveRequest.employeeName}
+                    </p>
+                    <p>
+                      <span className="font-medium">Email:</span>{" "}
+                      {selectedLeaveRequest.employeeEmail}
+                    </p>
+                    <p>
+                      <span className="font-medium">Employee ID:</span>{" "}
+                      {selectedLeaveRequest.employeeId}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Leave Details */}
+                <div className="bg-blue-50 p-6 rounded-lg">
+                  <h4 className="font-semibold text-gray-900 mb-4">
+                    Leave Details
+                  </h4>
+                  <div className="space-y-2">
+                    <p>
+                      <span className="font-medium">Type:</span>{" "}
+                      {selectedLeaveRequest.leaveType}
+                    </p>
+                    <p>
+                      <span className="font-medium">Duration:</span>{" "}
+                      {selectedLeaveRequest.totalDays} days
+                    </p>
+                    <p>
+                      <span className="font-medium">Start:</span>{" "}
+                      {formatDate(selectedLeaveRequest.startDate)}
+                    </p>
+                    <p>
+                      <span className="font-medium">End:</span>{" "}
+                      {formatDate(selectedLeaveRequest.endDate)}
+                    </p>
+                    <p>
+                      <span className="font-medium">Applied:</span>{" "}
+                      {formatDate(selectedLeaveRequest.appliedDate)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Leave Reason */}
+              <div className="mb-6">
+                <h4 className="font-semibold text-gray-900 mb-2">
+                  Reason for Leave
+                </h4>
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-gray-700">
+                    {selectedLeaveRequest.reason || "No reason provided"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Urgency Indicator */}
+              <div className="mb-6">
+                <h4 className="font-semibold text-gray-900 mb-2">
+                  Priority Level
+                </h4>
+                <span
+                  className={`px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full ${getUrgencyColor(
+                    selectedLeaveRequest.urgency
+                  )}`}
+                >
+                  {selectedLeaveRequest.urgency.charAt(0).toUpperCase() +
+                    selectedLeaveRequest.urgency.slice(1)}{" "}
+                  Priority
+                </span>
+              </div>
+
+              {/* Review Comments */}
+              {selectedLeaveRequest.status === "pending" && (
+                <div className="mb-6">
+                  <h4 className="font-semibold text-gray-900 mb-2">
+                    Review Comments
+                  </h4>
+                  <textarea
+                    value={reviewComments}
+                    onChange={(e) => setReviewComments(e.target.value)}
+                    placeholder="Add your comments here (optional for approval, required for rejection)..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows={4}
+                  />
+                </div>
+              )}
+
+              {/* Previous Review (if any) */}
+              {selectedLeaveRequest.status !== "pending" && (
+                <div className="mb-6">
+                  <h4 className="font-semibold text-gray-900 mb-2">
+                    Review History
+                  </h4>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span
+                        className={`px-2 py-1 text-xs rounded-full ${getStatusColor(
+                          selectedLeaveRequest.status
+                        )}`}
+                      >
+                        {selectedLeaveRequest.status.toUpperCase()}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        {selectedLeaveRequest.reviewedDate &&
+                          formatDate(selectedLeaveRequest.reviewedDate)}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-700">
+                      <strong>Reviewed by:</strong>{" "}
+                      {selectedLeaveRequest.reviewedBy || "System"}
+                    </p>
+                    {selectedLeaveRequest.reviewComments && (
+                      <p className="text-sm text-gray-700 mt-2">
+                        <strong>Comments:</strong>{" "}
+                        {selectedLeaveRequest.reviewComments}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setShowLeaveReviewModal(false)}
+                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition duration-200"
+                >
+                  Close
+                </button>
+                {selectedLeaveRequest.status === "pending" && (
+                  <>
+                    <button
+                      onClick={rejectLeaveRequest}
+                      disabled={
+                        actionLoading === `reject-${selectedLeaveRequest.id}`
+                      }
+                      className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 transition duration-200 flex items-center"
+                    >
+                      {actionLoading === `reject-${selectedLeaveRequest.id}` ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Rejecting...
+                        </>
+                      ) : (
+                        "Reject Request"
+                      )}
+                    </button>
+                    <button
+                      onClick={approveLeaveRequest}
+                      disabled={
+                        actionLoading === `approve-${selectedLeaveRequest.id}`
+                      }
+                      className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 transition duration-200 flex items-center"
+                    >
+                      {actionLoading ===
+                      `approve-${selectedLeaveRequest.id}` ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Approving...
+                        </>
+                      ) : (
+                        "Approve Request"
+                      )}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

@@ -10,6 +10,7 @@ import {
 import { firebaseConfig } from '../services/firebase';
 import HRDashboard from './HrDashboard';
 import AdminDashboard from './AdminDashboard';
+import EmployeeDashboard from './EmployeeDashboard';
 
 
 // Firebase configuration (replace with your config)
@@ -146,56 +147,7 @@ const ManagerDashboard: React.FC<{ user: UserProfile; onLogout: () => void }> = 
   </div>
 );
 
-const EmployeeDashboard: React.FC<{ user: UserProfile; onLogout: () => void }> = ({ user, onLogout }) => (
-  <div className="min-h-screen bg-gray-50 p-6">
-    <div className="max-w-6xl mx-auto">
-      <header className="bg-white shadow rounded-lg p-6 mb-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Employee Dashboard</h1>
-            <p className="text-gray-600 mt-2">Welcome back, {user.firstName} {user.lastName}!</p>
-          </div>
-          <button
-            onClick={onLogout}
-            className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition duration-200"
-          >
-            Logout
-          </button>
-        </div>
-      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-        <div className="bg-green-500 text-white p-6 rounded-lg">
-          <h3 className="text-lg font-semibold">Leave Balance</h3>
-          <p className="text-3xl font-bold mt-2">18</p>
-        </div>
-        <div className="bg-blue-500 text-white p-6 rounded-lg">
-          <h3 className="text-lg font-semibold">Hours This Month</h3>
-          <p className="text-3xl font-bold mt-2">156</p>
-        </div>
-        <div className="bg-purple-500 text-white p-6 rounded-lg">
-          <h3 className="text-lg font-semibold">Pending Tasks</h3>
-          <p className="text-3xl font-bold mt-2">7</p>
-        </div>
-        <div className="bg-indigo-500 text-white p-6 rounded-lg">
-          <h3 className="text-lg font-semibold">Performance Score</h3>
-          <p className="text-3xl font-bold mt-2">92%</p>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Employee Self-Service</h2>
-        <div className="space-y-2">
-          <p>• View personal information</p>
-          <p>• Request leave and track status</p>
-          <p>• Clock in/out and view attendance</p>
-          <p>• Access pay stubs</p>
-          <p>• Update emergency contacts</p>
-        </div>
-      </div>
-    </div>
-  </div>
-);
 
 const RecruiterDashboard: React.FC<{ user: UserProfile; onLogout: () => void }> = ({ user, onLogout }) => (
   <div className="min-h-screen bg-gray-50 p-6">

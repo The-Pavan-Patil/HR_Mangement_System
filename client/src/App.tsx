@@ -6,7 +6,6 @@ import './App.css'
 import HRMSAuth from './Pages/HTMSAuth'
 
 function App() {
-  const [count, setCount] = useState(0)
 
   return (
     <sidebar>
